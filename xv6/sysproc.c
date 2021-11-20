@@ -42,6 +42,7 @@ sys_getpid(void)
   return myproc()->pid;
 }
 
+
 int
 sys_sbrk(void)
 {
@@ -51,8 +52,13 @@ sys_sbrk(void)
   if(argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
-  if(growproc(n) < 0)
-    return -1;
+  if (n < 0) {
+    if((myproc()->sz = deallocuvm(myproc()->pgdir, addr, addr + n)) == 0)
+      return -1;
+  }
+  else {
+    myproc()->sz += n;
+  }
   return addr;
 }
 

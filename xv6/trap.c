@@ -13,6 +13,7 @@ struct gatedesc idt[256];
 extern uint vectors[];  // in vectors.S: array of 256 entry pointers
 struct spinlock tickslock;
 uint ticks;
+int mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm);
 
 void
 tvinit(void)
@@ -85,6 +86,37 @@ trap(struct trapframe *tf)
       cprintf("unexpected trap %d from cpu %d eip %x (cr2=0x%x)\n",
               tf->trapno, cpuid(), tf->eip, rcr2());
       panic("trap");
+    }
+
+    if (tf->trapno == T_PGFLT)
+    {
+      uint fault_sz_down = PGROUNDDOWN(rcr2());
+      uint fault_sz_up = PGROUNDUP(rcr2());
+
+      if (fault_sz_down >= KERNBASE)
+      {
+        myproc()->killed = 1;
+        return;
+      }
+
+      char *mem = kalloc();
+      if (mem == 0)
+      {
+        cprintf("allocuvm out of memory\n");
+        deallocuvm(myproc()->pgdir, fault_sz_up, fault_sz_down);
+        myproc()->killed = 1;
+        return;
+      }
+      memset(mem, 0, PGSIZE);
+      if (mappages(myproc()->pgdir, (char *) fault_sz_down, PGSIZE, V2P(mem), PTE_W | PTE_U) < 0)
+      {
+        cprintf("allocuvm out of memory (2)\n");
+        deallocuvm(myproc()->pgdir, fault_sz_up, fault_sz_down);
+        kfree(mem);
+        myproc()->killed = 1;
+        return;
+      }
+      return;
     }
     // In user space, assume process misbehaved.
     cprintf("pid %d %s: trap %d err %d on cpu %d "
